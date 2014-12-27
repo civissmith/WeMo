@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   id="svg2"
+   version="1.1"
+   inkscape:version="0.48.4 r9939"
+   width="225"
+   height="225"
+   sodipodi:docname="wemo_on_icon.svg">
+  <metadata
+     id="metadata8">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <defs
+     id="defs6">
+    <linearGradient
+       id="linearGradient3861">
+      <stop
+         style="stop-color:#eb0000;stop-opacity:1;"
+         offset="0"
+         id="stop3863" />
+      <stop
+         style="stop-color:#000002;stop-opacity:1;"
+         offset="1"
+         id="stop3865" />
+    </linearGradient>
+    <linearGradient
+       id="linearGradient3849">
+      <stop
+         style="stop-color:#003aff;stop-opacity:1;"
+         offset="0"
+         id="stop3851" />
+      <stop
+         id="stop3859"
+         offset="0.25"
+         style="stop-color:#ffb900;stop-opacity:0.74901962;" />
+      <stop
+         id="stop3857"
+         offset="0.5"
+         style="stop-color:#ffff00;stop-opacity:0.49803922;" />
+      <stop
+         style="stop-color:#ffff00;stop-opacity:0;"
+         offset="1"
+         id="stop3853" />
+    </linearGradient>
+    <linearGradient
+       id="linearGradient2993">
+      <stop
+         style="stop-color:#800000;stop-opacity:1;"
+         offset="0"
+         id="stop2995" />
+      <stop
+         id="stop3001"
+         offset="0.41819549"
+         style="stop-color:#800000;stop-opacity:0.59166664;" />
+      <stop
+         style="stop-color:#800000;stop-opacity:0.29411765;"
+         offset="0.78549248"
+         id="stop3003" />
+      <stop
+         style="stop-color:#800000;stop-opacity:0;"
+         offset="1"
+         id="stop2997" />
+    </linearGradient>
+    <linearGradient
+       inkscape:collect="always"
+       xlink:href="#linearGradient3861"
+       id="linearGradient3867"
+       x1="117.30182"
+       y1="225.67416"
+       x2="117.30182"
+       y2="100.28254"
+       gradientUnits="userSpaceOnUse" />
+  </defs>
+  <sodipodi:namedview
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1"
+     objecttolerance="10"
+     gridtolerance="10"
+     guidetolerance="10"
+     inkscape:pageopacity="0"
+     inkscape:pageshadow="2"
+     inkscape:window-width="1713"
+     inkscape:window-height="1014"
+     id="namedview4"
+     showgrid="false"
+     showguides="true"
+     inkscape:guide-bbox="true"
+     inkscape:zoom="4.1955556"
+     inkscape:cx="139.54077"
+     inkscape:cy="99.391218"
+     inkscape:window-x="1949"
+     inkscape:window-y="40"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg2">
+    <sodipodi:guide
+       orientation="1,0"
+       position="117.30182,131.79602"
+       id="guide3871" />
+    <sodipodi:guide
+       orientation="0,1"
+       position="1.685371,124.71746"
+       id="guide3877" />
+    <sodipodi:guide
+       orientation="0,1"
+       position="-58.819449,222.46898"
+       id="guide3883" />
+    <sodipodi:guide
+       orientation="0,1"
+       position="0.67414841,2.3595195"
+       id="guide3885" />
+    <sodipodi:guide
+       orientation="1,0"
+       position="2.0224452,194.15474"
+       id="guide3887" />
+    <sodipodi:guide
+       orientation="1,0"
+       position="217.91848,144.60484"
+       id="guide3889" />
+    <sodipodi:guide
+       orientation="0,1"
+       position="33.538884,215.05334"
+       id="guide3891" />
+    <sodipodi:guide
+       orientation="1,0"
+       position="9.775152,201.73891"
+       id="guide3893" />
+    <sodipodi:guide
+       orientation="1,0"
+       position="209.82869,201.40184"
+       id="guide3895" />
+    <sodipodi:guide
+       orientation="0,1"
+       position="32.02205,7.5841697"
+       id="guide3918" />
+  </sodipodi:namedview>
+  <rect
+     style="fill:url(#linearGradient3867);fill-rule:nonzero;stroke:none"
+     id="rect3847"
+     width="224.98856"
+     height="226.1768"
+     x="0.17700662"
+     y="-0.50264555"
+     ry="24.683949" />
+  <text
+     xml:space="preserve"
+     style="font-size:89.19945526px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;line-height:125%;letter-spacing:0px;word-spacing:0px;fill:#ffffff;fill-opacity:1;stroke:none;font-family:TeX Gyre Adventor;-inkscape-font-specification:TeX Gyre Adventor"
+     x="12.413132"
+     y="73.421913"
+     id="text3879"
+     sodipodi:linespacing="125%"
+     transform="scale(0.74675283,1.3391312)"><tspan
+       sodipodi:role="line"
+       id="tspan3881"
+       x="12.413132"
+       y="73.421913"
+       style="font-weight:bold;-inkscape-font-specification:TeX Gyre Adventor Bold">WEMO</tspan></text>
+  <text
+     xml:space="preserve"
+     style="font-size:114.94667816px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;text-align:center;line-height:125%;letter-spacing:0px;word-spacing:0px;text-anchor:middle;fill:#ffffff;fill-opacity:1;stroke:none;font-family:TeX Gyre Adventor;-inkscape-font-specification:TeX Gyre Adventor"
+     x="118.94931"
+     y="191.59676"
+     id="text3879-1"
+     sodipodi:linespacing="125%"
+     transform="scale(0.98614959,1.0140449)"><tspan
+       sodipodi:role="line"
+       id="tspan3881-4"
+       x="118.94931"
+       y="191.59676"
+       style="font-weight:bold;text-align:center;text-anchor:middle;-inkscape-font-specification:TeX Gyre Adventor Bold">Off</tspan></text>
+</svg>

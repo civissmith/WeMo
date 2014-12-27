@@ -1,0 +1,544 @@
+#!/usr/bin/python -B
+################################################################################
+# Copyright (c) 2014 Phil Smith
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+################################################################################
+################################################################################
+# @Title: wemod
+#
+# @Author: Phil Smith
+#
+# @Date: Fri, 26-Dec-14 07:14AM
+#
+# @Project: WeMo
+#
+# @Purpose: Daemon to control WeMo devices.
+#
+################################################################################
+import os
+import re
+import sys
+import time
+import Wemo
+import atexit
+import socket
+import signal
+import struct
+import os.path as op
+import subprocess as sp
+
+class Server(object):
+  """
+  The server class to practice essential concepts for the new WeMo config.
+  """
+
+
+  def __init__(self):
+    # Init a command queue
+    self.cmd_q = []
+
+    # Init the callback dict
+    self.cb_funcs = {}
+
+    self.tx_endpoint = "/tmp/wemo_srv_out"
+    self.rx_endpoint = "/tmp/wemo_srv_in"
+    self.pf_name   = "/tmp/wemod.pid"
+
+    self.wemo_sockets = []
+    self.wemo_sensors  = []
+
+    self.register_callbacks()
+
+
+  def enqueue_cmd(self, cmd):
+    """
+    Add a command to the server command queue.
+    """
+    self.cmd_q.append(cmd)
+
+
+  def dequeue_cmd(self):
+    """
+    Dequeues the command at the head of the queue.
+    """
+
+    # Don't attempt to process an empty queue.
+    if not self.cmd_q:
+      return None
+
+    # Return the head element.
+    return self.cmd_q.pop(0)
+
+
+  def add_cb(self, name, func):
+    """
+    Adds a callback NAME for the function FUNC to the callback dict.
+    """
+    self.cb_funcs[name] = func
+
+
+  def register_callbacks(self):
+    """
+    Registers the set of a priori callbacks.
+    """
+
+    # Command to quit the server
+    self.add_cb("quit_cmd", self.quit )
+
+    # Command to turn a WeMo On
+    self.add_cb( "on_cmd", self.turn_on )
+
+    # Command to turn a WeMo Off
+    self.add_cb( "off_cmd", self.turn_off )
+
+    # Command to toggle a WeMo
+    self.add_cb( "toggle_cmd", self.toggle )
+
+    # Command to list known devices
+    self.add_cb( "list_cmd", self.list_devs )
+
+    # Command to rebuild the device list
+    self.add_cb( "refresh_cmd", self.build_dev_list )
+
+
+  def quit(self):
+    """
+    Callback to handle the "quit" command.
+    """
+    self.rx_socket.close()
+    os.remove( self.rx_endpoint )
+    exit(0)
+
+
+  def connect_tx(self):
+    """
+    Connects the server to the tx socket. Caller should check return to make
+    sure connection occurred.
+    """
+    self.tx_socket = socket.socket( socket.AF_UNIX, socket.SOCK_DGRAM )
+
+    if op.exists( self.tx_endpoint ):
+      self.tx_socket.connect( self.tx_endpoint )
+      return True
+    return False
+
+
+  def connect_rx(self):
+    """
+    Connects the server to the rx socket.
+    """
+
+    # Socket already in use will return socket.error(98)
+    # Get rid of it before trying to connect.
+    # Note: must check for 'exists' no 'isfile' because sockets
+    #       are not "files".
+    if op.exists( self.rx_endpoint ):
+      os.remove( self.rx_endpoint )
+
+    # Set the socket to non-blocking
+    self.rx_socket = socket.socket( socket.AF_UNIX, socket.SOCK_DGRAM )
+    self.rx_socket.setblocking(0)
+
+    try:
+      self.rx_socket.bind( self.rx_endpoint )
+    except Exception as e:
+      print "Fatal Exception:"
+      print "Could not connect to socket: %s" % self.rx_endpoint
+      print "Info:"
+      print e.args
+      exit(1)
+
+
+  def listen(self):
+    """
+    Listen to the socket for incoming data.
+    """
+
+    # Check for new data
+    # If new data is available:
+    #   Enqueue the command and proceed
+
+    # Since the socket is non-blocking, handle the
+    # "Resource temporarily unavailable" exception.
+    try:
+      raw_data = self.rx_socket.recv(4096)
+
+    except socket.error as err:
+      if err.args[0] == 11:
+        return
+      # If the exception was not the "Resource temporarily unavailable"
+      # then something bad happened and should be reported.
+      print "Fatal Exception: ",
+      print err.args[1]
+      exit(1)
+
+    except AttributeError as err:
+      # The quit command causes this exection to be thrown.
+      exit(0)
+
+    # To get here, data must have been recieved. Pre-check it and
+    # enqueue if necessary.
+    data = raw_data.lower().split()
+    cmd = data[0]
+
+    # If command is no-argument, then args will be the empty list.
+    args = data[1:]
+
+    if cmd in self.cb_funcs:
+      self.enqueue_cmd( (cmd, args) )
+
+
+  def process_cmds(self):
+    """
+    Process the commands in the command queue.
+    """
+    element = self.dequeue_cmd()
+    if not element:
+      return
+    cmd = element[0]
+    args = element[1][:]
+
+    if cmd in self.cb_funcs and args:
+      for arg in args:
+        self.cb_funcs[cmd]( arg )
+    elif cmd in self.cb_funcs:
+      self.cb_funcs[cmd]()
+
+
+  def run(self):
+    """
+    Main executive for the server.
+    """
+
+    if len(sys.argv) != 2:
+      print('Usage: %s [start|stop]' % sys.argv[0])
+      exit(1)
+
+    # Daemon was commanded to start
+    if sys.argv[1] == 'start':
+      try:
+        self.daemonize( self.pf_name )
+      except Exception as err:
+        print "Fatal Exception: "
+        print err.args
+        exit(1)
+
+      self.connect_rx()
+
+    # Daemon was commanded to stop
+    elif sys.argv[1] == 'stop':
+      if os.path.exists( self.pf_name ):
+        pidFile = open( self.pf_name , 'r')
+        pid = pidFile.read()
+        os.kill(int(pid), signal.SIGTERM)
+      else:
+        print('Daemon not running!')
+        exit(1)
+    else:
+        print('Unknown Command!')
+        exit(1)
+
+    count = 0
+
+    self.build_dev_list()
+
+    # event loop
+    while True:
+
+      count += 1
+      self.listen()
+      self.process_cmds()
+      time.sleep(1)
+
+      # Don't flood the network with requests
+      if count >= 120:
+        self.build_dev_list()
+        count = 0
+
+
+  def build_dev_list(self):
+    """
+    Build the list of WeMo devices on the network.
+    """
+    sockets = self.find_wemos( "SOCKET" )
+    sensors = self.find_wemos( "SENSOR" )
+
+    # Clear the lists before populating them. Only update the lists if
+    # Wemos have reported in.
+    if sockets:
+      self.wemo_sockets = []
+
+      for socket in sockets:
+        dev = Wemo.WemoSocket( socket[0], socket[1], socket[2] )
+        self.wemo_sockets.append( dev )
+
+    if sensors:
+      self.wemo_sensors  = []
+
+      for sensor in sensors:
+        dev = Wemo.WemoSocket( sensor[0], sensor[1], sensor[2] )
+        self.wemo_sensors.append( dev )
+
+
+  def daemonize( self, pidfile, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
+    """
+    Turn this process into a daemon.
+    """
+    #
+    # Check to see if the daemon is already running.
+    #
+    if os.path.exists(pidfile):
+      print 'Daemon is already running'
+      exit(1)
+
+    #
+    # This fork will detach the daemon from the parent task. (First Fork)
+    #
+    try:
+      if os.fork() > 0:
+        exit(0)
+
+    except OSError:
+      print 'First fork has failed! Quitting...'
+      exit(2)
+
+    #
+    # Change the cwd so that the daemon gives up any links to it.
+    #
+    os.chdir('/')
+    os.umask(0)
+    os.setsid()
+
+    #
+    # This fork will cause the daemon to relinquish session leadership. (Second Fork)
+    #
+    try:
+      if os.fork() > 0:
+        exit(0)
+    except OSError:
+      print 'Second fork has failed! Quitting...'
+      exit(2)
+
+    #
+    # Flush all of the I/O buffers.
+    #
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    #
+    # The file descriptors for stdin/out/err should be replaced.
+    #
+    os.dup2(0, 2)
+    os.dup2(0, 3)
+
+    #
+    # Write the PID into the PID file.
+    #
+    pf = open(pidfile, 'w')
+    pid = os.getpid()
+    pf.write(str(pid))
+    pf.close()
+
+    #
+    # Delete the PID file when the daemon exits
+    #
+    atexit.register(lambda: os.remove(pidfile))
+
+    #
+    # Create a signal handler to kill the daemon
+    #
+    def sigterm_handler(signo, frame):
+
+      # If signal comes in, queue up a quit command
+      self.enqueue_cmd( ("quit_cmd", [] ))
+    signal.signal(signal.SIGTERM, sigterm_handler)
+
+
+  def find_wemos(self, dev_type):
+    """
+    Find the WeMo devices on the network.
+    """
+    #
+    # Set the Multicast address and port for SSDP
+    #
+    MULTICAST_ADDR = '239.255.255.250'
+    MULTICAST_PORT = 1900
+    TIMEOUT = 2.5 # Seconds
+
+    #
+    # Define the local gateway IP address so the software can figure out
+    # which interface to use.
+    #
+    LOCAL_GW_ADDR = '192.168.0.1'
+    LOCAL_GW_PORT = 80
+
+    #
+    # The DISCOVER string is required by the UPnP standard to query for devices.
+    # This string is searching SPECIFICALLY for Wemo devices.
+    #
+    if dev_type.upper() in ["SOCKET",]:
+      service_type = 'ST:urn:Belkin:device:controllee:1\r\n'
+    elif dev_type.upper() in ["SENSOR",]:
+      service_type = 'ST:urn:Belkin:device:sensor:1\r\n'
+
+    # MX (maximum wait time for response in seconds = 2)
+    DISCOVER =  'M-SEARCH * HTTP/1.1\r\n' +\
+                'HOST:%s:%s\r\n' % (MULTICAST_ADDR, MULTICAST_PORT) +\
+                service_type  +\
+                'MX:2\r\n'                +\
+                'MAN:"ssdp:discover"\r\n\r\n'
+
+    # Set socket timer to TIMEOUT seconds, any blocking operation on sockets will
+    # abort if TIMEOUT seconds elapse.
+    socket.setdefaulttimeout(TIMEOUT)
+
+    loc_addr =  self.get_active_iface_addr( (LOCAL_GW_ADDR, LOCAL_GW_PORT) )
+
+    #
+    # Setup and send the MULTICAST request
+    #
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) # Internet socket using UDP
+
+    # Manually change the multicast interface to the chosen one.
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(loc_addr))
+
+    # Allow the kernel to reuse the socket even if TIME_WAIT has not expired.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # Bind the socket to the chosen address and open the multicast port.
+    sock.bind((loc_addr, MULTICAST_PORT))
+
+    # Ask politely to join the multicast group.
+    multicast_request = struct.pack('4sl', socket.inet_aton(MULTICAST_ADDR), socket.INADDR_ANY)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, multicast_request)
+
+    # Send the DISCOVER string to look for Wemos on the network.
+    sock.sendto(DISCOVER, (MULTICAST_ADDR, MULTICAST_PORT))
+
+    raw_wemos = []
+    wemos = []
+    found = 0
+
+    while True:
+      try:
+        # Try to receive data from any Wemo devices on the network.
+        raw_wemos.append(sock.recv(1024))
+      except socket.timeout:
+        # When no more Wemos respond within TIMEOUT seconds, then the socket will administratively
+        # kill the connection with a timeout exception.
+        break
+      found += 1
+
+    for wemo in raw_wemos:
+      # Search through the device information looking for key data.
+      location = re.search(r'location:\s*(.*)', wemo, re.IGNORECASE)
+      usn = re.search(r'usn:\s*(.*)', wemo, re.IGNORECASE)
+      st  = re.search(r'st:\s*(.*)', wemo, re.IGNORECASE)
+
+      if location and usn and st:
+        wemo_data = ()
+        wemo_data = (location.group(1).strip('\r\n'),
+                     usn.group(1).strip('\r\n'),
+                     st.group(1).strip('\r\n'))
+
+        if wemo_data not in wemos:
+          wemos.append(wemo_data)
+
+    if wemos:
+      return wemos
+    return None
+
+
+  def get_active_iface_addr( self, tgt_net ):
+    """
+    Hackish way to get the IP address of the active interface. The
+    null_socket is never bound or used, other than to get the address.
+    """
+    null_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    null_socket.connect((tgt_net[0], tgt_net[1]))
+    return null_socket.getsockname()[0]
+
+
+  def turn_on(self, arg):
+    """
+    Command to turn a WeMo On. This command can only apply to socket
+    devices.
+    """
+
+    # Find the WeMo in the list and run its turn_on() method.
+    for wemo in self.wemo_sockets:
+      if wemo.name.lower() == arg.lower() or arg.lower() == "all":
+        wemo.turn_on()
+
+
+  def turn_off(self, arg):
+    """
+    Command to turn a WeMo Off. This command can only apply to socket
+    devices.
+    """
+
+    # Find the WeMo in the list and run its turn_off() method.
+    for wemo in self.wemo_sockets:
+      if wemo.name.lower() == arg.lower() or arg.lower() == "all":
+        wemo.turn_off()
+
+
+  def toggle(self, arg):
+    """
+    Command to toggle a WeMo. This command can only apply to socket
+    devices.
+    """
+
+    # Find the WeMo in the list and run its toggle() method.
+    for wemo in self.wemo_sockets:
+      if wemo.name.lower() == arg.lower() or arg.lower() == "all":
+        wemo.toggle()
+
+
+  def list_devs(self):
+    """
+    List the devices known. This version relies on 'notify-send'
+    so it will NOT work if the program is not available.
+    """
+    icon = op.expanduser('~') + "/.wemo/icons/wemo_icon.svg"
+    timeout = '2000'
+
+    # Bail out if the server can't talk to the client.
+    if not self.connect_tx():
+      return
+
+    devices = ""
+
+    # Send the client the names of the devices.
+    for socket in self.wemo_sockets:
+      devices += "[" + socket.name + "]"
+      devices += " "
+    for sensor in self.wemo_sensors:
+      devices += "[" + sensor.name + "]"
+      devices += " "
+
+    self.tx_socket.send(devices)
+
+
+
+if __name__ == "__main__":
+
+  serv = Server()
+  serv.run()
