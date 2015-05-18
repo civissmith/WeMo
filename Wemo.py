@@ -38,424 +38,422 @@ import fcntl
 import struct
 import socket
 
-#
-# WemoBase class represents generic Wemo devices.
-#{
-class WemoBase(object):
-  """
-  Represents the basic Wemo functionality.
-  """
-  #
-  # WemoBase::__init__() - Initialize basic data for Wemo
-  #{
-  def __init__(self, location, uuid='None', dev_type='None'):
+# Wemo {
+class Wemo(object):
+    """
+    Represents the basic Wemo device. This class is the base for all other
+    Wemo devices.
+    """
+
+    timeout = 2.5
+
+    def __init__(self, url=''):
+        """
+        Initialize the Wemo base class.
+        """
+
+        # Strip off the trailing slash since the commands need to have a leading slash.
+        if url[-1] == '/':
+             self.url = url[:-1]
+        else:
+             self.url = url
+
+        # Strip out the URL information to get the IP address and port.
+        self.ip, self.port = url.strip('http://').strip('/setup.xml').split(':')
+        self.port = int(self.port)
+        self.name = self.get_friendly_name()
+        self.current_state = self.get_current_state()
+
+    def __str__(self):
+        """
+        String representation of the Wemo class.
+        """
+        dev_str = "%s - %s:%s" % ( self.name, self.ip, self.port )
+        return dev_str
 
 
-    # Strip off the trailing slash since the commands need to have a leading slash.
-    if location[-1] == '/':
-       self.location = location[:-1]
-    else:
-       self.location = location
+    def send_to_wemo(self, message):
+        """
+        Sends the SOAP and payload message to the Wemo and returns the data received from
+        the device.
+        """
+        #
+        # Setup a socket connection to the device.
+        #
+        socket.setdefaulttimeout(Wemo.timeout)
 
-    self.uuid  = uuid
-    self.dev_type = dev_type
-    # Strip out the URL information to get the IP address and port.
-    self.ip, self.port = location.strip('http://').strip('/setup.xml').split(':')
-    self.port = int(self.port)
-    self.TIMEOUT = 2.5 # Seconds
-    self.LOCAL_GW_ADDR = '192.168.0.1'
-    self.LOCAL_GW_PORT = 80
-    self.name = self.get_friendly_name()
-    self.current_state = self.get_current_state()
+        # Wemo commands are sent over TCP
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+        # Allow the kernel to reuse the addr without TIME_WAIT expiring
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-  #}
-  # End of WemoBase::__init__() 
-  #
-    
-  #
-  # WemoBase::__str__() - String representation
-  #{
-  def __str__(self):
-    dev_str = "%s - %s:%s" % ( self.name, self.ip, self.port )
-    return dev_str
-  #}
-  # End of WemoBase::__str__() 
-  #
+        sock.connect((self.ip, self.port))
+        sock.sendto(message, (self.ip, self.port))
+        response = sock.recv(1024)
+        sock.close()
+        return response
 
-  #
-  # WemoBase::send_to_wemo() - Sends a SOAP+payload message to the Wemo hardware.
-  #                            Returns the response from the hardware.
-  #{
-  def send_to_wemo(self, message):
-    #
-    # Setup a socket connection to the device.
-    #
-    socket.setdefaulttimeout(self.TIMEOUT)
-    cmd_addr = get_active_iface_addr((self.LOCAL_GW_ADDR, self.LOCAL_GW_PORT))
+    # get_soap_payload(){
+    def get_soap_payload(self, service, action):
+        """
+        Returns a SOAP header and payload to send to a Wemo.
+        """
 
-    # Wemo commands are sent over TCP
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-    # Allow the kernel to reuse the addr without TIME_WAIT expiring
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # TODO: Move the XML data to template files.
+        SOAP = ''
+        payload = ''
+        host = ''
+        host = "Host: %s:%s\r\n" % (self.ip, self.port)
+        ####################
+        # Services         #
+        ####################
 
-    sock.connect((self.ip, self.port ))
-    sock.sendto( message, (self.ip, self.port ) )
-    response = sock.recv(1024)
-    sock.close()
-    return response
-  #}
-  # End of WemoBase::send_to_wemo()
-  #
+        if service.upper() == 'SET_BIN_STATE':
+            SOAP = 'POST /upnp/control/basicevent1 HTTP/1.1\r\n' +\
+                         'SOAPAction: "urn:Belkin:service:basicevent:1#SetBinaryState"\r\n' +\
+                         host +\
+                         'Content-Type: text/xml\r\n' +\
+                         'Content-Length: 333\r\n\r\n'
 
-  #
-  # WemoBase::get_soap_payload() - Returns a SOAP header and payload to send
-  #                                to a WeMo device.
-  #{
-  def get_soap_payload(self, service, action):
-    SOAP = ''
-    payload = ''
-    host = ''
-    host = "Host: %s:%s\r\n" % (self.ip, self.port)
-    ####################
-    # Services         #
-    ####################
+        if service.upper() == 'GET_BIN_STATE':
+            SOAP = 'POST /upnp/control/basicevent1 HTTP/1.1\r\n' +\
+                         'SOAPAction: "urn:Belkin:service:basicevent:1#GetBinaryState"\r\n' +\
+                         host +\
+                         'Content-Type: text/xml\r\n' +\
+                         'Content-Length: 305\r\n\r\n'
 
-    if service.upper() == 'SET_BIN_STATE':
-      SOAP = 'POST /upnp/control/basicevent1 HTTP/1.1\r\n' +\
-             'SOAPAction: "urn:Belkin:service:basicevent:1#SetBinaryState"\r\n' +\
-             host +\
-             'Content-Type: text/xml\r\n' +\
-             'Content-Length: 333\r\n\r\n'
+        if service.upper() == 'GET_FRIEND_NAME':
+            SOAP = 'POST /upnp/control/basicevent1 HTTP/1.1\r\n' +\
+                         'SOAPAction: "urn:Belkin:service:basicevent:1#GetFriendlyName"\r\n' +\
+                         host +\
+                         'Content-Type: text/xml\r\n' +\
+                         'Content-Length: 336\r\n\r\n'
 
-    if service.upper() == 'GET_BIN_STATE':
-      SOAP = 'POST /upnp/control/basicevent1 HTTP/1.1\r\n' +\
-             'SOAPAction: "urn:Belkin:service:basicevent:1#GetBinaryState"\r\n' +\
-             host +\
-             'Content-Type: text/xml\r\n' +\
-             'Content-Length: 305\r\n\r\n'
+        ####################
+        # Actions          #
+        ####################
+        if action.upper() == 'TURN_ON':
+            payload = '<?xml version="1.0"?>\n' +\
+                                '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n' +\
+                                '<SOAP-ENV:Body>\n' +\
+                                '\t<m:SetBinaryState xmlns:m="urn:Belkin:service:basicevent:1">\n' +\
+                                '<BinaryState>1</BinaryState>\n' +\
+                                '\t</m:SetBinaryState>\n' +\
+                                '</SOAP-ENV:Body>\n' +\
+                                '</SOAP-ENV:Envelope>'
+        if action.upper() == 'TURN_OFF':
+            payload = '<?xml version="1.0"?>\n' +\
+                                '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n' +\
+                                '<SOAP-ENV:Body>\n' +\
+                                '\t<m:SetBinaryState xmlns:m="urn:Belkin:service:basicevent:1">\n' +\
+                                '<BinaryState>0</BinaryState>\n' +\
+                                '\t</m:SetBinaryState>\n' +\
+                                '</SOAP-ENV:Body>\n' +\
+                                '</SOAP-ENV:Envelope>'
+        if action.upper() == 'GET_NAME':
+            payload = '<?xml version="1.0"?>\n' +\
+                                '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n' +\
+                                '<SOAP-ENV:Body>\n' +\
+                                '\t<m:GetFriendlyName xmlns:m="urn:Belkin:service:basicevent:1">\n' +\
+                                '<FriendlyName></FriendlyName>\n' +\
+                                '\t</m:GetFriendlyName>\n' +\
+                                '</SOAP-ENV:Body>\n' +\
+                                '</SOAP-ENV:Envelope>'
 
-    if service.upper() == 'GET_FRIEND_NAME':
-      SOAP = 'POST /upnp/control/basicevent1 HTTP/1.1\r\n' +\
-             'SOAPAction: "urn:Belkin:service:basicevent:1#GetFriendlyName"\r\n' +\
-             host +\
-             'Content-Type: text/xml\r\n' +\
-             'Content-Length: 336\r\n\r\n'
+        if action.upper() == 'GET_STATE':
+            payload = '<?xml version="1.0"?>\n' +\
+                                '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n' +\
+                                '<SOAP-ENV:Body>\n' +\
+                                '\t<m:GetBinaryState xmlns:m="urn:Belkin:service:basicevent:1">\n\n' +\
+                                '\t</m:GetBinaryState>\n' +\
+                                '</SOAP-ENV:Body>\n' +\
+                                '</SOAP-ENV:Envelope>'
 
-    ####################
-    # Actions          #
-    ####################
-    if action.upper() == 'TURN_ON':
-      payload = '<?xml version="1.0"?>\n' +\
-                '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n' +\
-                '<SOAP-ENV:Body>\n' +\
-                '\t<m:SetBinaryState xmlns:m="urn:Belkin:service:basicevent:1">\n' +\
-                '<BinaryState>1</BinaryState>\n' +\
-                '\t</m:SetBinaryState>\n' +\
-                '</SOAP-ENV:Body>\n' +\
-                '</SOAP-ENV:Envelope>'
-    if action.upper() == 'TURN_OFF':
-      payload = '<?xml version="1.0"?>\n' +\
-                '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n' +\
-                '<SOAP-ENV:Body>\n' +\
-                '\t<m:SetBinaryState xmlns:m="urn:Belkin:service:basicevent:1">\n' +\
-                '<BinaryState>0</BinaryState>\n' +\
-                '\t</m:SetBinaryState>\n' +\
-                '</SOAP-ENV:Body>\n' +\
-                '</SOAP-ENV:Envelope>'
-     
-    if action.upper() == 'GET_NAME':
-      payload = '<?xml version="1.0"?>\n' +\
-                '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n' +\
-                '<SOAP-ENV:Body>\n' +\
-                '\t<m:GetFriendlyName xmlns:m="urn:Belkin:service:basicevent:1">\n' +\
-                '<FriendlyName></FriendlyName>\n' +\
-                '\t</m:GetFriendlyName>\n' +\
-                '</SOAP-ENV:Body>\n' +\
-                '</SOAP-ENV:Envelope>'
+        return SOAP, payload
+    #} End of get_soap_payload()
 
-    if action.upper() == 'GET_STATE':
-      payload = '<?xml version="1.0"?>\n' +\
-                '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\n' +\
-                '<SOAP-ENV:Body>\n' +\
-                '\t<m:GetBinaryState xmlns:m="urn:Belkin:service:basicevent:1">\n\n' +\
-                '\t</m:GetBinaryState>\n' +\
-                '</SOAP-ENV:Body>\n' +\
-                '</SOAP-ENV:Envelope>'
+    # get_friendly_name(){
+    def get_friendly_name(self):
+        """
+        Returns the "friendly name" of the Wemo.
+        """
+        #
+        # In some cases, the response from the WeMo will come back in two TCP packets
+        # send_to_wemo() only reads the first packet off the wire, which would cause
+        # NO_NAME_FOUND, even when the second packet had the data. Now this function
+        # will handle all aspects of getting the name, including setting up the TCP
+        # connection.
+        #
+        name = ''
+        tries = 0
+        MAX_TRIES = 5
+        soap_header, payload_data = self.get_soap_payload('GET_FRIEND_NAME', 'GET_NAME')
+        message = soap_header + payload_data
+        #
+        # Setup a socket connection to the device.
+        #
+        socket.setdefaulttimeout(Wemo.timeout)
 
-    return SOAP, payload
-  #}
-  # End of WemoBase::get_soap_payload()
-  #
-  
-  #
-  # WemoBaseClass::get_friendly_name()
-  #{
-  def get_friendly_name(self):
-  #
-  # In some cases, the response from the WeMo will come back in two TCP packets
-  # send_to_wemo() only reads the first packet off the wire, which would cause
-  # NO_NAME_FOUND, even when the second packet had the data. Now this function
-  # will handle all aspects of getting the name, including setting up the TCP
-  # connection.
-  #
-    name = ''
-    tries = 0
-    MAX_TRIES = 5
-    soap_header, payload_data = self.get_soap_payload('GET_FRIEND_NAME', 'GET_NAME')
-    message = soap_header + payload_data
-    #
-    # Setup a socket connection to the device.
-    #
-    socket.setdefaulttimeout(self.TIMEOUT)
-    cmd_addr = get_active_iface_addr((self.LOCAL_GW_ADDR, self.LOCAL_GW_PORT))
+        # Wemo commands are sent over TCP
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+        # Allow the kernel to reuse the addr without TIME_WAIT expiring
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    # Wemo commands are sent over TCP
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-    # Allow the kernel to reuse the addr without TIME_WAIT expiring
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.connect((self.ip, self.port ))
+        sock.sendto( message, (self.ip, self.port ) )
+        response = sock.recv(1024)
+        while not name and tries < MAX_TRIES:
+            name = re.search('<FriendlyName>(.*)</FriendlyName>', response, re.IGNORECASE)
+            if name:
+                    return name.group(1)
+            else:
+                 response = sock.recv(1024)
+                 tries += 1
+        sock.close()
+        return 'NO_NAME_FOUND'
+    #} End of get_friendly_name()
 
-    sock.connect((self.ip, self.port ))
-    sock.sendto( message, (self.ip, self.port ) )
-    response = sock.recv(1024)
-    while not name and tries < MAX_TRIES:
-      name = re.search('<FriendlyName>(.*)</FriendlyName>', response, re.IGNORECASE)
-      if name:
-          return name.group(1)
-      else:
-         response = sock.recv(1024)
-         tries += 1
-    sock.close()
-    return 'NO_NAME_FOUND'
-  #}
-  # End of WemoBaseClass::get_friendly_name()
-  #
-  
-  
-  #
-  # WemoBaseClass::get_current_state()
-  #{
-  def get_current_state(self):
-  #
-  # In some cases, the response from the WeMo will come back in two TCP packets
-  # send_to_wemo() only reads the first packet off the wire, which would cause
-  # NO_NAME_FOUND, even when the second packet had the data. Now this function
-  # will handle all aspects of getting the name, including setting up the TCP
-  # connection.
-  #
-    name = ''
-    tries = 0
-    MAX_TRIES = 5
-    soap_header, payload_data = self.get_soap_payload('GET_BIN_STATE', 'GET_STATE')
-    message = soap_header + payload_data
-    #
-    # Setup a socket connection to the device.
-    #
-    socket.setdefaulttimeout(self.TIMEOUT)
-    cmd_addr = get_active_iface_addr((self.LOCAL_GW_ADDR, self.LOCAL_GW_PORT))
+    # get_current_state(){
+    def get_current_state(self):
+        """
+        Returns the current state of the Wemo device.
+        """
+        #
+        # In some cases, the response from the WeMo will come back in two TCP packets
+        # send_to_wemo() only reads the first packet off the wire, which would cause
+        # NO_NAME_FOUND, even when the second packet had the data. Now this function
+        # will handle all aspects of getting the name, including setting up the TCP
+        # connection.
+        #
+        name = ''
+        tries = 0
+        MAX_TRIES = 5
+        soap_header, payload_data = self.get_soap_payload('GET_BIN_STATE', 'GET_STATE')
+        message = soap_header + payload_data
+        #
+        # Setup a socket connection to the device.
+        #
+        # TODO: Setup a socket factory to return configured sockets
+        socket.setdefaulttimeout(Wemo.timeout)
 
-    # Wemo commands are sent over TCP
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-    # Allow the kernel to reuse the addr without TIME_WAIT expiring
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Wemo commands are sent over TCP
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+        # Allow the kernel to reuse the addr without TIME_WAIT expiring
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    sock.connect((self.ip, self.port ))
-    sock.sendto( message, (self.ip, self.port ) )
-    response = sock.recv(1024)
-    while not name and tries < MAX_TRIES:
-      name = re.search('<BinaryState>(.*)</BinaryState>', response, re.IGNORECASE)
-      if name:
-        if '1' in name.group(1):
-          return 'ON'
-        if '0' in name.group(1):
-          return 'OFF'
-      else:
-         response = sock.recv(1024)
-         tries += 1
-    sock.close()
-    return 'NO_STATE_FOUND'
-  #}
-  # End of WemoBaseClass::get_current_state()
-  #
-#}
-# End of WemoBase Class
-#
+        sock.connect((self.ip, self.port ))
+        sock.sendto( message, (self.ip, self.port ) )
+        response = sock.recv(1024)
 
-#
-# Wemo Socket class
-#{
-class WemoSocket(WemoBase):
-  """
-    WemoSocket class represents Wemo smart socket devices.
-  """
+        while not name and tries < MAX_TRIES:
+            name = re.search('<BinaryState>(.*)</BinaryState>', response, re.IGNORECASE)
+            if name:
+                if '1' in name.group(1):
+                    return 'ON'
+                if '0' in name.group(1):
+                    return 'OFF'
+            else:
+                 response = sock.recv(1024)
+                 tries += 1
+        sock.close()
+        return 'NO_STATE_FOUND'
+    #} End of get_current_state()
 
-  #
-  # WemoSocket::turn_on() - Issues the command to turn the socket on.
-  #{
-  def turn_on(self):
-    self.current_state = 'ON'
-    soap_header, payload_data = self.get_soap_payload('SET_BIN_STATE','TURN_ON')
-    self.send_to_wemo(soap_header + payload_data )
-  #}
-  # End of WemoSocket::turn_on()
-  #
-    
-  #
-  # WemoSocket::turn_off() - Issues the command to turn the socket off.
-  #{
-  def turn_off(self):
-    self.current_state = 'OFF'
-    soap_header, payload_data = self.get_soap_payload('SET_BIN_STATE','TURN_OFF')
-    self.send_to_wemo(soap_header + payload_data )
-  #}
-  # End of WemoSocket::turn_off()
-  #
 
-  #
-  # WemoSocket::toggle() - Issues the command to turn the socket off.
-  #{
-  def toggle(self):
-    if 'ON' in self.current_state:
-      self.turn_off()
-    elif 'OFF' in self.current_state:
-      self.turn_on()
-   
-  #}
-  # End of WemoSocket::toggle()
-  #
+    @staticmethod
+    def get_active_iface_addr():
+        """
+        Hackish way to get the IP address of the active interface. The
+        null_socket is never bound or used, other than to get the address.
+        """
+        eth_dev = Wemo.detect_active_iface()
+        if eth_dev not in 'NO_IF':
+            null_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            return socket.inet_ntoa(fcntl.ioctl(null_socket.fileno(), 0x8915, struct.pack('256s', eth_dev[:15]))[20:24])
+        return '127.0.0.1'
 
-#}
-# End of Wemo Socket class
-#
 
-#
-# Wemo Sensor class
-#{
-class WemoSensor(WemoBase):
-  """
-    WemoSensor class represents Wemo motion sensor devices.
-  """
-  def check_for_motion(self):
-    print "I'm checking for motion!"
-    pass
-#}
-# End of Wemo Sensor class
-#
+    # find_wemos(){
+    @staticmethod
+    def find_wemos(dev_type):
+        """
+        Find the WeMo devices on the network.
+        """
+        #
+        # Set the Multicast address and port for SSDP
+        #
+        MULTICAST_ADDR = '239.255.255.250'
+        MULTICAST_PORT = 1900
 
-#
-# get_active_iface_addr() - returns the interface connected to the
-#                           given network.
-#{
-def get_active_iface_addr( tgt_net ):
-  #
-  # Hackish way to get the IP address of the active interface. The
-  # null_socket is never bound or used, other than to get the address.
-  #
-  null_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-  null_socket.connect((tgt_net[0], tgt_net[1]))
-  return null_socket.getsockname()[0]
-#}
-# End of get_active_iface_addr()
-#
+        devices = { "SOCKET": 'ST:urn:Belkin:device:controllee:1\r\n',
+                    "SENSOR": 'ST:urn:Belkin:device:sensor:1\r\n',
+                    "LINK"  : 'ST:urn:Belkin:device:bridge:1\r\n',
+                  }
+        if dev_type.upper() in devices:
+           service_type = devices[dev_type.upper()]
+        else:
+            return []
 
-#
-# find_wemos: sends M-SEARCH requests to check for any Wemo devices on the network.
-#             returns a list of tuples in the order (location, uuid, device type)
-#             or None.
-#{
+        # MX (maximum wait time for response in seconds = 2)
+        DISCOVER =    'M-SEARCH * HTTP/1.1\r\n' +\
+                                'HOST:%s:%s\r\n' % (MULTICAST_ADDR, MULTICAST_PORT) +\
+                                service_type    +\
+                                'MX:2\r\n'                                +\
+                                'MAN:"ssdp:discover"\r\n\r\n'
 
-def find_wemos( dev_type ):
-  #
-  # Set the Multicast address and port for SSDP
-  #
-  MULTICAST_ADDR = '239.255.255.250'
-  MULTICAST_PORT = 1900
-  TIMEOUT = 2.5 # Seconds
+        # Set socket timer to TIMEOUT seconds, any blocking operation on sockets will
+        # abort if TIMEOUT seconds elapse.
+        socket.setdefaulttimeout(Wemo.timeout)
 
-  #
-  # Define the local gateway IP address so the software can figure out
-  # which interface to use.
-  #
-  LOCAL_GW_ADDR = '192.168.0.1'
-  LOCAL_GW_PORT = 80
+        loc_addr = Wemo.get_active_iface_addr()
 
-  #
-  # The DISCOVER string is required by the UPnP standard to query for devices.
-  # This string is searching SPECIFICALLY for Wemo devices.
-  #
-  if dev_type.upper() in ["SOCKET",]:
-    service_type = 'ST:urn:Belkin:device:controllee:1\r\n'
-  elif dev_type.upper() in ["SENSOR",]:
-    service_type = 'ST:urn:Belkin:device:sensor:1\r\n'
+        #
+        # Setup and send the MULTICAST request
+        #
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) # Internet socket using UDP
 
-  # MX (maximum wait time for response in seconds = 2)
-  DISCOVER =  'M-SEARCH * HTTP/1.1\r\n' +\
-              'HOST:%s:%s\r\n' % (MULTICAST_ADDR, MULTICAST_PORT) +\
-              service_type  +\
-              'MX:2\r\n'                +\
-              'MAN:"ssdp:discover"\r\n\r\n' 
-  
-  # Set socket timer to TIMEOUT seconds, any blocking operation on sockets will
-  # abort if TIMEOUT seconds elapse.
-  socket.setdefaulttimeout(TIMEOUT)
-  
-  loc_addr =  get_active_iface_addr( (LOCAL_GW_ADDR, LOCAL_GW_PORT) )
-  
-  #
-  # Setup and send the MULTICAST request
-  #
-  sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) # Internet socket using UDP
-  
-  # Manually change the multicast interface to the chosen one.
-  sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(loc_addr))
-  
-  # Allow the kernel to reuse the socket even if TIME_WAIT has not expired.
-  sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-  
-  # Bind the socket to the chosen address and open the multicast port.
-  sock.bind((loc_addr, MULTICAST_PORT))
-  
-  # Ask politely to join the multicast group.
-  multicast_request = struct.pack('4sl', socket.inet_aton(MULTICAST_ADDR), socket.INADDR_ANY)
-  sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, multicast_request)
-  
-  # Send the DISCOVER string to look for Wemos on the network.
-  sock.sendto(DISCOVER, (MULTICAST_ADDR, MULTICAST_PORT))
-  
-  raw_wemos = []
-  wemos = []
-  found = 0
-  
-  while True:
-    try:
-      # Try to receive data from any Wemo devices on the network.
-      raw_wemos.append(sock.recv(1024))
-    except socket.timeout:
-      # When no more Wemos respond within TIMEOUT seconds, then the socket will administratively
-      # kill the connection with a timeout exception. 
-  
-      if found == 0:
-        print "Search time (%s seconds) expired, %d device was found." % (TIMEOUT, found)
-      break
-    found += 1
-  
-  for wemo in raw_wemos:
-    # Search through the device information looking for key data.
-    location = re.search(r'location:\s*(.*)', wemo, re.IGNORECASE)
-    usn = re.search(r'usn:\s*(.*)', wemo, re.IGNORECASE)
-    st  = re.search(r'st:\s*(.*)', wemo, re.IGNORECASE)
-  
-    if location and usn and st:
-      wemo_data = ()
-      wemo_data = (location.group(1).strip('\r\n'), 
-                   usn.group(1).strip('\r\n'),
-                   st.group(1).strip('\r\n'))
-  
-      if wemo_data not in wemos:
-        wemos.append(wemo_data)
-  
-  if wemos:
-    return wemos
-  return None
-#}
-# End of find_wemos()
-#
+        # Manually change the multicast interface to the chosen one.
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(loc_addr))
+
+        # Allow the kernel to reuse the socket even if TIME_WAIT has not expired.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # Bind the socket to the chosen address and open the multicast port.
+        sock.bind((loc_addr, MULTICAST_PORT))
+
+        # Ask politely to join the multicast group.
+        multicast_request = struct.pack('4sl', socket.inet_aton(MULTICAST_ADDR), socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, multicast_request)
+
+        # Send the DISCOVER string to look for Wemos on the network.
+        sock.sendto(DISCOVER, (MULTICAST_ADDR, MULTICAST_PORT))
+
+        raw_wemos = []
+        wemos = []
+        found = 0
+
+        while True:
+            try:
+                # Try to receive data from any Wemo devices on the network.
+                raw_wemos.append(sock.recv(1024))
+            except socket.timeout:
+                # When no more Wemos respond within TIMEOUT seconds, then the socket will administratively
+                # kill the connection with a timeout exception.
+                break
+            found += 1
+
+        for wemo in raw_wemos:
+            # Search through the device information looking for key data.
+            url_found = re.search(r'location:\s*(.*)', wemo, re.IGNORECASE)
+
+            if url_found:
+                wemo_data = url_found.group(1).strip('\r\n')
+
+                if wemo_data not in wemos:
+                    wemos.append(wemo_data)
+
+        if wemos:
+            return wemos
+        return []
+    #} End of find_wemos()
+
+
+    @staticmethod
+    def detect_active_iface():
+       """
+       Uses /proc/net/dev to determine which Ethernet interface to use. Returns the device's
+       name (such as 'eth0', 'wlan0', or whatever is appropriate.
+       """
+       net_file = open('/proc/net/dev', 'r')
+       # These are the first fields in rows we're not interested in.
+       rejects = ['Inter-|', 'face', 'lo:']
+       for line in net_file:
+           data = line.split()
+           if data[0] in rejects:
+               continue
+           # Chop the ':' from the device name.
+           name = data[0][:-1]
+           # Check for a interface that has transmitted.
+           tx_bytes = int(data[9])
+           if tx_bytes > 0:
+               return name
+       return 'NO_IF'
+
+#} End of Wemo Class
+
+
+
+# Wemo Socket class {
+class Socket(Wemo):
+    """
+    Socket class represents Wemo smart socket devices.
+    """
+
+    def turn_on(self):
+        """
+        Sets the current_state and sends the command to turn the socket ON.
+        """
+        self.current_state = 'ON'
+        soap_header, payload_data = self.get_soap_payload('SET_BIN_STATE','TURN_ON')
+        self.send_to_wemo(soap_header + payload_data )
+
+
+    def turn_off(self):
+        """
+        Sets the current_state and sends the command to turn the socket OFF.
+        """
+        self.current_state = 'OFF'
+        soap_header, payload_data = self.get_soap_payload('SET_BIN_STATE','TURN_OFF')
+        self.send_to_wemo(soap_header + payload_data )
+
+    def toggle(self):
+        """
+        Checks the current_state and either sends an ON or OFF command.
+        """
+        if 'ON' in self.current_state:
+            self.turn_off()
+        elif 'OFF' in self.current_state:
+            self.turn_on()
+
+    @staticmethod
+    def find_wemos():
+        """
+        Extends the base version to look specifically for sockets.
+        """
+        return super(Socket, Socket).find_wemos("SOCKET")
+
+#} End of Wemo Socket class
+
+
+
+# Wemo Sensor class {
+class Sensor(Wemo):
+    """
+    Sensor class represents Wemo motion sensor devices.
+    """
+    def check_for_motion(self):
+        print "I'm checking for motion!"
+
+    @staticmethod
+    def find_wemos():
+        """
+        Extends the base version to look specifically for sockets.
+        """
+        return super(Sensor, Sensor).find_wemos("SENSOR")
+
+#} End of Wemo Sensor class
+
+
+# Wemo Link class {
+class Link(Wemo):
+
+    # TODO: Merge in WemoPOC's Link class methods. (After socket factory)
+
+    @staticmethod
+    def find_wemos():
+        """
+        Extends the base version to look specifically for sockets.
+        """
+        return super(Link, Link).find_wemos("LINK")
+
+#} End of Wemo Link class

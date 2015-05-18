@@ -64,6 +64,7 @@ class Server(object):
 
         self.wemo_sockets = []
         self.wemo_sensors = []
+        self.wemo_links   = []
 
         self.register_callbacks()
 
@@ -100,6 +101,8 @@ class Server(object):
         Registers the set of a priori callbacks.
         """
 
+        # TODO: Dictify this. d = {"name":func} = then loop
+        #       through dict adding cbs.
         # Command to quit the server
         self.add_cb("quit_cmd", self.quit )
 
@@ -288,24 +291,32 @@ class Server(object):
         """
         Build the list of WeMo devices on the network.
         """
-        sockets = Server.find_wemos( "SOCKET" )
-        sensors = Server.find_wemos( "SENSOR" )
+        sockets = Wemo.Socket.find_wemos()
+        sensors = Wemo.Sensor.find_wemos()
+        links   = Wemo.Link.find_wemos()
 
         # Clear the lists before populating them. Only update the lists if
         # Wemos have reported in.
         if sockets:
             self.wemo_sockets = []
 
-            for socket in sockets:
-                dev = Wemo.WemoSocket( socket[0], socket[1], socket[2] )
+            for location in sockets:
+                dev = Wemo.Socket(url=location)
                 self.wemo_sockets.append( dev )
 
         if sensors:
-            self.wemo_sensors    = []
+            self.wemo_sensors = []
 
-            for sensor in sensors:
-                dev = Wemo.WemoSocket( sensor[0], sensor[1], sensor[2] )
+            for location in sensors:
+                dev = Wemo.Sensor(url=location)
                 self.wemo_sensors.append( dev )
+
+        if links:
+            self.wemo_links = []
+
+            for location in sockets:
+                dev = Wemo.Link(url=location)
+                self.wemo_links.append( dev )
 
 
     def daemonize( self, pidfile, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
@@ -382,108 +393,6 @@ class Server(object):
         signal.signal(signal.SIGTERM, sigterm_handler)
 
 
-    @staticmethod
-    def find_wemos(dev_type):
-        """
-        Find the WeMo devices on the network.
-        """
-        #
-        # Set the Multicast address and port for SSDP
-        #
-        MULTICAST_ADDR = '239.255.255.250'
-        MULTICAST_PORT = 1900
-        TIMEOUT = 2.5 # Seconds
-
-        #
-        # The DISCOVER string is required by the UPnP standard to query for devices.
-        # This string is searching SPECIFICALLY for Wemo devices.
-        #
-        if dev_type.upper() in ["SOCKET",]:
-            service_type = 'ST:urn:Belkin:device:controllee:1\r\n'
-        elif dev_type.upper() in ["SENSOR",]:
-            service_type = 'ST:urn:Belkin:device:sensor:1\r\n'
-
-        # MX (maximum wait time for response in seconds = 2)
-        DISCOVER =    'M-SEARCH * HTTP/1.1\r\n' +\
-                                'HOST:%s:%s\r\n' % (MULTICAST_ADDR, MULTICAST_PORT) +\
-                                service_type    +\
-                                'MX:2\r\n'                                +\
-                                'MAN:"ssdp:discover"\r\n\r\n'
-
-        # Set socket timer to TIMEOUT seconds, any blocking operation on sockets will
-        # abort if TIMEOUT seconds elapse.
-        socket.setdefaulttimeout(TIMEOUT)
-
-        loc_addr = Server.get_active_iface_addr()
-
-        #
-        # Setup and send the MULTICAST request
-        #
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) # Internet socket using UDP
-
-        # Manually change the multicast interface to the chosen one.
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(loc_addr))
-
-        # Allow the kernel to reuse the socket even if TIME_WAIT has not expired.
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-        # Bind the socket to the chosen address and open the multicast port.
-        sock.bind((loc_addr, MULTICAST_PORT))
-
-        # Ask politely to join the multicast group.
-        multicast_request = struct.pack('4sl', socket.inet_aton(MULTICAST_ADDR), socket.INADDR_ANY)
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, multicast_request)
-
-        # Send the DISCOVER string to look for Wemos on the network.
-        sock.sendto(DISCOVER, (MULTICAST_ADDR, MULTICAST_PORT))
-
-        raw_wemos = []
-        wemos = []
-        found = 0
-
-        while True:
-            try:
-                # Try to receive data from any Wemo devices on the network.
-                raw_wemos.append(sock.recv(1024))
-            except socket.timeout:
-                # When no more Wemos respond within TIMEOUT seconds, then the socket will administratively
-                # kill the connection with a timeout exception.
-                break
-            found += 1
-
-        for wemo in raw_wemos:
-            # Search through the device information looking for key data.
-            location = re.search(r'location:\s*(.*)', wemo, re.IGNORECASE)
-            usn = re.search(r'usn:\s*(.*)', wemo, re.IGNORECASE)
-            st    = re.search(r'st:\s*(.*)', wemo, re.IGNORECASE)
-
-            if location and usn and st:
-                wemo_data = ()
-                wemo_data = (location.group(1).strip('\r\n'),
-                                         usn.group(1).strip('\r\n'),
-                                         st.group(1).strip('\r\n'))
-
-                if wemo_data not in wemos:
-                    wemos.append(wemo_data)
-
-        if wemos:
-            return wemos
-        return None
-
-
-    @staticmethod
-    def get_active_iface_addr():
-        """
-        Hackish way to get the IP address of the active interface. The
-        null_socket is never bound or used, other than to get the address.
-        """
-        eth_dev = Server.detect_active_iface()
-        if eth_dev not in 'NO_IF':
-            null_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            return socket.inet_ntoa(fcntl.ioctl(null_socket.fileno(), 0x8915, struct.pack('256s', eth_dev[:15]))[20:24])
-        return '127.0.0.1'
-
-
     def turn_on(self, arg):
         """
         Command to turn a WeMo On. This command can only apply to socket
@@ -543,35 +452,6 @@ class Server(object):
             devices += " "
 
         self.tx_socket.send(devices)
-
-    @staticmethod
-    def detect_active_iface():
-       """
-       Uses /proc/net/dev to determine which Ethernet interface to use. Returns the device's
-       name (such as 'eth0', 'wlan0', or whatever is appropriate.
-       """
-       net_file = open('/proc/net/dev', 'r')
-    
-       # These are the first fields in rows we're not interested in.
-       rejects = ['Inter-|', 'face', 'lo:']
-       for line in net_file:
-    
-           data = line.split()
-           if data[0] in rejects:
-               continue
-    
-           # Chop the ':' from the device name.
-           name = data[0][:-1]
-    
-           # Check for a interface that has transmitted.
-           tx_bytes = int(data[9])
-    
-           if tx_bytes > 0:
-               return name
-    
-       return 'NO_IF'
-
-
 
 
 if __name__ == "__main__":
